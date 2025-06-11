@@ -4,6 +4,8 @@
    Usage: pps [c|v] <address> [-p 0-65535]
 '''
 
+import time
+import math
 import socket
 import asyncio
 import argparse
@@ -59,6 +61,7 @@ async def main(host: str, start_port: int, end_port: int, verbose: bool) -> None
     processed_ports = {}
     print(f"Using address: {host}")
     print("="*50)
+    start_time = time.time()
     for i in range(start_port, end_port, MAX_NUM_OPEN_SOCK):
         low_bound = i
         high_bound = min(low_bound + MAX_NUM_OPEN_SOCK, end_port)
@@ -79,8 +82,12 @@ async def main(host: str, start_port: int, end_port: int, verbose: bool) -> None
         if high_bound == end_port:
             print(f"Checking Ports {low_bound}:{high_bound}")
 
+    finish_time = int(math.trunc(time.time() - start_time))
+
     print("="*50)
-    print("Done!")
+    print(
+        f"Done! Time Elapsed: \
+            {int(finish_time//60)}:{int((finish_time - ((finish_time//60) * 60)) % 60):0>2}")
     print("="*50)
     searchspace = len(opened) + timed_out + refused
 
