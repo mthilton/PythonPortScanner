@@ -10,7 +10,7 @@ import socket
 import asyncio
 import argparse
 
-MAX_NUM_OPEN_SOCK = 100
+MAX_NUM_OPEN_SOCK: int = 1000
 
 
 def check_ip(ip: str) -> bool:
@@ -22,29 +22,31 @@ def check_ip(ip: str) -> bool:
         return False
 
 
-async def test_port(host: str, port: int) -> tuple[str, str | None, str | None]:
+async def test_port(host: str, port: int, semaphore: asyncio.Semaphore) \
+        -> tuple[str, str | None, str | None]:
     '''Creates a worker socket for async'''
-    loop = asyncio.get_event_loop()
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setblocking(False)
-    socket.setdefaulttimeout(1)
-    port_str = str(port) + "/tcp"
-    port_state = None
-    port_service = None
+    async with semaphore:
+        loop = asyncio.get_event_loop()
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setblocking(False)
+        socket.setdefaulttimeout(1)
+        port_str = str(port) + "/tcp"
+        port_state = None
+        port_service = None
 
-    # Is the Port open?
-    try:
-        await loop.sock_connect(s, (host, port))
-        port_state = "Open"
-        port_service = socket.getservbyport(port)
-    except ConnectionRefusedError:
-        port_state = "Refused"
-    except TimeoutError:
-        port_state = "Timeout"
-    except OSError:
-        port_service = "Unknown"
-    finally:
-        s.close()
+        # Is the Port open?
+        try:
+            await loop.sock_connect(s, (host, port))
+            port_state = "Open"
+            port_service = socket.getservbyport(port)
+        except ConnectionRefusedError:
+            port_state = "Refused"
+        except TimeoutError:
+            port_state = "Timeout"
+        except OSError:
+            port_service = "Unknown"
+        finally:
+            s.close()
 
     return port_str, port_state, port_service
 
@@ -59,41 +61,41 @@ async def main(host: str, start_port: int, end_port: int, verbose: bool) -> None
     timed_out = 0
     refused = 0
     processed_ports = {}
-    print(f"Using address: {host}")
     print("="*50)
+    print(f"Using address: {host}")
     start_time = time.time()
-    for i in range(start_port, end_port, MAX_NUM_OPEN_SOCK):
-        low_bound = i
-        high_bound = min(low_bound + MAX_NUM_OPEN_SOCK, end_port)
-        print(f"Checking Ports {low_bound}:{high_bound}", end="\r")
-        tasks = [test_port(host, p) for p in range(low_bound, high_bound)]
-        results = await asyncio.gather(*tasks)
 
-        for r in results:
-            processed_ports[r[0]] = (r[1], r[2])
-            match r[1]:
-                case "Open":
-                    opened.append(r[0].replace("/tcp", ""))
-                case "Refused":
-                    refused += 1
-                case "Timeout":
-                    timed_out += 1
+    # For each port, check to see if you are able to connect
+    tasks: list[asyncio.Task] = []
+    semaphore = asyncio.Semaphore(MAX_NUM_OPEN_SOCK)
+    async with asyncio.TaskGroup() as group:
+        for port in range(start_port, end_port):
+            task = group.create_task(test_port(host, port, semaphore))
+            tasks.append(task)
+    results = [task.result() for task in tasks]
 
-        if high_bound == end_port:
-            print(f"Checking Ports {low_bound}:{high_bound}")
+    # Once all ports have been tested, process results
+    for r in results:
+        processed_ports[r[0]] = (r[1], r[2])
+        match r[1]:
+            case "Open":
+                opened.append(r[0].replace("/tcp", ""))
+            case "Refused":
+                refused += 1
+            case "Timeout":
+                timed_out += 1
 
     finish_time = int(math.trunc(time.time() - start_time))
 
     print("="*50)
     print(
-        f"Done! Time Elapsed: \
-            {int(finish_time//60)}:{int((finish_time - ((finish_time//60) * 60)) % 60):0>2}")
+        f"Done! Time Elapsed: {int(finish_time//60)}:{int(finish_time % 60):0>2}")
     print("="*50)
     searchspace = len(opened) + timed_out + refused
 
     if not verbose:
         print(f"Closed Ports: {refused}/{searchspace}")
-        print(f"Timsed Out Ports: {timed_out}/{searchspace}")
+        print(f"Timed Out Ports: {timed_out}/{searchspace}")
         print(f"Open Ports: {len(opened)}/{searchspace}\n{opened}")
     else:
         print(f"Closed Ports: {refused}/{searchspace}")
