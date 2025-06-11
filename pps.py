@@ -10,8 +10,6 @@ import socket
 import asyncio
 import argparse
 
-MAX_NUM_OPEN_SOCK: int = 1000
-
 
 def check_ip(ip: str) -> bool:
     '''Checks if passed string is a valid IP Address'''
@@ -63,11 +61,12 @@ async def main(host: str, start_port: int, end_port: int, verbose: bool) -> None
     processed_ports = {}
     print("="*50)
     print(f"Using address: {host}")
+    max_num_open_sockets: int = 10000
     start_time = time.time()
 
     # For each port, check to see if you are able to connect
     tasks: list[asyncio.Task] = []
-    semaphore = asyncio.Semaphore(MAX_NUM_OPEN_SOCK)
+    semaphore = asyncio.Semaphore(max_num_open_sockets)
     async with asyncio.TaskGroup() as group:
         for port in range(start_port, end_port):
             task = group.create_task(test_port(host, port, semaphore))
@@ -112,7 +111,7 @@ if __name__ == "__main__":
         description="Scans open ports on given host")
     parser.add_argument(
         "host",
-        help="Select the host that you would like to scan. Can be IPv4 addr or an FQDN.",
+        help="Select the host that you would like to scan. Can be IPv4 addr or an FQDN."
     )
     parser.add_argument(
         "-v",
